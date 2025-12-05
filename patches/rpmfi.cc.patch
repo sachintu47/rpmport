@@ -1,0 +1,258 @@
+diff --git a/lib/rpmfi.cc b/lib/rpmfi.cc
+index d5d7bde..988870c 100644
+--- a/lib/rpmfi.cc
++++ b/lib/rpmfi.cc
+@@ -34,6 +34,13 @@ using hardlinks = std::vector<int>;
+ using nlinkHash = std::unordered_map<int,std::shared_ptr<hardlinks>>;
+ 
+ typedef int (*iterfunc)(rpmfi fi);
++/* z/OS file tag kinds */
++typedef enum {
++	  ZOSTAG_NONE   = 0,    /* no tag / unknown */
++	  ZOSTAG_TEXT   = 1,    /* text (convertible) */
++	  ZOSTAG_BINARY = 2,    /* binary (no convert) */
++	  ZOSTAG_MIXED  = 3     /* mixed/record-oriented */
++} zostag_t;
+ 
+ struct rpmfi_s {
+     int i;			/*!< Current file index. */
+@@ -50,8 +57,17 @@ struct rpmfi_s {
+ 
+     rpmfiles files;		/*!< File info set */
+     rpmcpio_t archive;		/*!< Archive with payload */
++
++    size_t   *fextlens;         /*!< length in bytes for each fextattrs[i] */
++    bool     *fhas_zos_meta;    /*!< boolean: whether metadata was captured for this file */
++    /* ------------------------------------------ */
++
+     uint8_t * found;	/*!< Bit field of files found in the archive */
+     std::atomic_int nrefs;	/*!< Reference count */
++/* Z/OS fileds*/
++    uint32_t *fgenvalues;
++    uint16_t *fccsids;
++    uint16_t *ftxtflags;
+ };
+ 
+ struct rpmfn_s {
+@@ -124,6 +140,13 @@ struct rpmfiles_s {
+     rpm_loff_t * replacedSizes;	/*!< (TR_ADDED) */
+     int magic;
+     std::atomic_int nrefs;	/*!< Reference count. */
++    /* Z/OS fileds*/
++    uint32_t *fgenvalues;
++    uint16_t *fccsids;
++    uint16_t *ftxtflags;
++    char    ** ftags;        /* per-file z/OS filetag strings (s[]) */
++    char    ** fxattrs;      /* per-file serialized extended attributes (s[]) */
++
+ };
+ 
+ static int indexSane(rpmtd xd, rpmtd yd, rpmtd zd);
+@@ -142,6 +165,13 @@ rpmfi rpmfiLink(rpmfi fi)
+ 	fi->nrefs++;
+     return fi;
+ }
++#ifdef __MVS__
++#include <stdlib.h>
++#include <string.h>
++#include <rpm/rpmfi.h>
++
++#endif /* __MVS__ */
++
+ 
+ /*
+  * Collect and validate file path data from header.
+@@ -509,7 +539,14 @@ rpm_mode_t rpmfilesFMode(rpmfiles fi, int ix)
+     if (fi != NULL && ix >= 0 && ix < rpmfilesFC(fi)) {
+ 	if (fi->fmodes != NULL)
+ 	    fmode = fi->fmodes[ix];
++#ifdef __MVS__
++        /* If only perms are stored, add regular file type */
++        if ((fmode & S_IFMT) == 0) {
++           fmode |= S_IFREG;   /* assume regular file by default */
++        }
++#endif
+     }
++
+     return fmode;
+ }
+ 
+@@ -813,7 +850,7 @@ int rpmfilesStat(rpmfiles fi, int ix, int flags, struct stat *sb)
+ 	/* Only regular files and symlinks have a size */
+ 	if (S_ISREG(sb->st_mode) || S_ISLNK(sb->st_mode))
+ 	    sb->st_size = rpmfilesFSize(fi, ix);
+-
++#ifndef __MVS__
+ 	if (user && rpmugUid(user, &sb->st_uid)) {
+ 	    if (warn)
+ 		rpmlog(RPMLOG_WARNING,
+@@ -827,7 +864,7 @@ int rpmfilesStat(rpmfiles fi, int ix, int flags, struct stat *sb)
+ 			_("group %s does not exist - using %s\n"), group, GID_0_GROUP);
+ 	    sb->st_mode &= ~S_ISGID;	/* turn off sgid bit */
+ 	}
+-
++#endif
+ 	rc = 0;
+     }
+     return rc;
+@@ -1258,6 +1295,22 @@ rpmfiles rpmfilesFree(rpmfiles fi)
+ 	if (!(fi->fiflags & RPMFI_KEEPHEADER) && fi->h == NULL) {
+ 	    fi->fmtimes = _free(fi->fmtimes);
+ 	    fi->fmodes = _free(fi->fmodes);
++	    fi->fgenvalues = _free(fi->fgenvalues);
++	    fi->fccsids = _free(fi->fccsids);
++	    fi->ftxtflags = _free(fi->ftxtflags);
++
++	    /* free string arrays */
++	    /*if (fi->ftags) {
++	       for (rpm_count_t i = 0; i < rpmfilesFC(fi->files); i++)
++	            fi->ftags[i] = _free(fi->ftags[i]);
++	            fi->ftags = _free(fi->ftags);
++       	    }
++	    if (fi->fxattrs) {
++		for (rpm_count_t i = 0; i < rpmfilesFC(fi->files); i++)
++		    fi->fxattrs[i] = _free(fi->fxattrs[i]);
++	            fi->fxattrs = _free(fi->fxattrs);
++	    }*/
++
+ 	    fi->fflags = _free(fi->fflags);
+ 	    fi->vflags = _free(fi->vflags);
+ 	    fi->fsizes = _free(fi->fsizes);
+@@ -1279,7 +1332,9 @@ rpmfiles rpmfilesFree(rpmfiles fi)
+ 
+     fi->h = headerFree(fi->h);
+     fi->pool = rpmstrPoolFree(fi->pool);
+-
++#ifdef __MVS__
++        //rpmfi_free_zos_meta(fi);
++#endif
+     delete fi->nlinks;
+ 
+     delete fi;
+@@ -1573,8 +1628,68 @@ static int rpmfilesPopulate(rpmfiles fi, Header h, rpmfiFlags flags)
+     rpm_count_t totalfc = rpmfilesFC(fi);
+ 
+     /* XXX TODO: all these should be sanity checked, ugh... */
+-    if (!(flags & RPMFI_NOFILEMODES))
+-	_hgfi(h, RPMTAG_FILEMODES, &td, scareFlags, fi->fmodes);
++if (!(flags & RPMFI_NOFILEMODES)) {
++    uint16_t *modes16 = NULL;
++    _hgfi(h, RPMTAG_FILEMODES, &td, scareFlags, modes16);
++    if (modes16) {
++        fi->fmodes = (rpm_mode_t *) xmalloc(totalfc * sizeof(*fi->fmodes));
++        if (fi->fmodes == NULL) {
++           return -1;
++        }
++
++       for (rpm_count_t i = 0; i < totalfc; i++) {
++      /* Preserve both Linux file-type bits and permission bits */
++	      mode_t linux_mode = (mode_t)modes16[i];  /* use raw value */
++	       rpm_mode_t zos_mode = (rpm_mode_t) to_zos_mode(linux_mode);
++
++	      fi->fmodes[i] = zos_mode;
++        }
++ }
++}
++
++if (!(flags & RPMFI_NOFILEGENVALUES)) {
++    uint32_t *genvals = NULL;
++    _hgfi(h, RPMTAG_FILEGENVALUE, &td, scareFlags, genvals);
++    if (genvals) {
++       fi->fgenvalues = (uint32_t *) xmalloc(totalfc * sizeof(*fi->fgenvalues));
++       if (fi->fgenvalues == NULL) {
++          return -1;
++       }
++
++       for (rpm_count_t i = 0; i < totalfc; i++) {
++           fi->fgenvalues[i] = genvals[i];
++    }
++  }
++}
++if (!(flags & RPMFI_NOFILECCSIDS)) {
++    uint16_t *ccsids = NULL;
++    _hgfi(h, RPMTAG_FILECCSID, &td, scareFlags, ccsids);
++    if (ccsids) {
++            fi->fccsids = (uint16_t *) xmalloc(totalfc * sizeof(*fi->fccsids));
++            if (fi->fccsids == NULL) {
++	                return -1;
++	            }
++    
++            for (rpm_count_t i = 0; i < totalfc; i++) {
++	                fi->fccsids[i] = ccsids[i];
++	            }
++        }
++}
++if (!(flags & RPMFI_NOFILETXTFLAGS)) {
++    uint16_t *txtflags = NULL;
++    _hgfi(h, RPMTAG_FILETXTFLAG, &td, scareFlags, txtflags);
++    if (txtflags) {
++       fi->ftxtflags = (uint16_t *) xmalloc(totalfc * sizeof(*fi->ftxtflags));
++       if (fi->ftxtflags == NULL) {
++          return -1;
++     }
++
++     for (rpm_count_t i = 0; i < totalfc; i++) {
++        fi->ftxtflags[i] = txtflags[i];
++  }
++ }
++}
++
+     if (!(flags & RPMFI_NOFILEFLAGS))
+ 	_hgfi(h, RPMTAG_FILEFLAGS, &td, scareFlags, fi->fflags);
+     if (!(flags & RPMFI_NOFILEVERIFYFLAGS))
+@@ -1706,6 +1821,10 @@ rpmfiles rpmfilesNew(rpmstrPool pool, Header h, rpmTagVal tagN, rpmfiFlags flags
+ 	    
+ 	if (rpmfilesPopulate(fi, h, flags))
+ 	    goto err;
++#ifdef __MVS__
++	        /* Allocate z/OS file metadata arrays after all files are known */
++	 //   rpmfi_alloc_zos_meta(fi, fc);
++#endif
+     }
+ 
+     /* freeze the pool to save memory, but only if private pool */
+@@ -2453,3 +2572,44 @@ char * rpmfileStrerror(int rc)
+ 
+     return msg;
+ }
++
++/* Thin accessors for the values you populated above.
++ *    Add prototypes to the appropriate header (e.g. include/rpm/rpmfi.h)
++ *       or include them in a public header so other compilation units can call them.
++ *       */
++
++#include "system.h"
++#include "rpmfi_internal.hh"   /* for rpmfi, rpmfiles, rpmfilesFC() prototypes */
++#include <rpm/rpmtypes.h>
++
++uint32_t
++rpmfiFileCCSID(rpmfi fi, int ix)
++{
++    if (fi == NULL) return 0;
++    rpmfiles rf = fi->files;
++    if (rf == NULL) return 0;
++    if (ix < 0 || ix >= (int)rpmfilesFC(rf)) return 0;
++    return rf->fccsids ? (uint32_t) rf->fccsids[ix] : 0;
++}
++
++/* Also provide accessors for the numeric/flag arrays you mentioned */
++uint32_t
++rpmfiFileGenValue(rpmfi fi, int ix)
++{
++    if (fi == NULL) return 0;
++    rpmfiles rf = fi->files;
++    if (rf == NULL) return 0;
++    if (ix < 0 || ix >= (int)rpmfilesFC(rf)) return 0;
++    return rf->fgenvalues ? rf->fgenvalues[ix] : 0;
++}
++
++uint8_t
++rpmfiFileTxtFlag(rpmfi fi, int ix)
++{
++    if (fi == NULL) return 0;
++    rpmfiles rf = fi->files;
++    if (rf == NULL) return 0;
++    if (ix < 0 || ix >= (int)rpmfilesFC(rf)) return 0;
++    return rf->ftxtflags ? rf->ftxtflags[ix] : 0;
++}
++

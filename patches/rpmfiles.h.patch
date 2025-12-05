@@ -1,0 +1,18 @@
+diff --git a/include/rpm/rpmfiles.h b/include/rpm/rpmfiles.h
+index 46d23d3..cd61bcd 100644
+--- a/include/rpm/rpmfiles.h
++++ b/include/rpm/rpmfiles.h
+@@ -154,6 +154,13 @@ enum rpmfiFlags_e {
+     RPMFI_NOFILESIGNATURES	= (1 << 18),
+     RPMFI_NOVERITYSIGNATURES	= (1 << 19),
+     RPMFI_NOFILEMIME		= (1 << 20),
++
++    /* --- z/OS specific additions --- */
++    RPMFI_NOFILEGENVALUES       = (1 << 21),
++    RPMFI_NOFILECCSIDS          = (1 << 22),
++    RPMFI_NOFILETXTFLAGS        = (1 << 23),
++    RPMFI_NOFILETAGS		= (1 << 24),
++    RPMFI_NOFILEXATTRS		= (1 << 25),
+ };
+ 
+ typedef rpmFlags rpmfiFlags;
