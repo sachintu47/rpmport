@@ -1,5 +1,5 @@
 diff --git a/rpmio/CMakeLists.txt b/rpmio/CMakeLists.txt
-index 397ec13..7941370 100644
+index 397ec13..ff7bac7 100644
 --- a/rpmio/CMakeLists.txt
 +++ b/rpmio/CMakeLists.txt
 @@ -1,4 +1,4 @@
@@ -8,3 +8,12 @@ index 397ec13..7941370 100644
  
  target_sources(librpmio PRIVATE
  	argv.cc base64.cc digest.cc expression.cc macro.cc rpmhook.hh rpmhook.cc
+@@ -28,7 +28,7 @@ if (WITH_SEQUOIA)
+ 	target_link_libraries(librpmio PRIVATE PkgConfig::RPMSEQUOIA)
+ else()
+ 	if (WITH_LEGACY_OPENPGP)
+-		target_link_libraries(librpmio PRIVATE rpmpgp_legacy)
++		target_sources(librpmio PRIVATE $<TARGET_OBJECTS:rpmpgp_legacy>)
+ 	else()
+ 		target_sources(librpmio PRIVATE rpmpgp_dummy.cc)
+ 	endif()
