@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 7c1a9ff..ab61008 100644
+index 7c1a9ff..a1ec931 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -78,7 +78,6 @@ function(findutil UTIL TRY)
@@ -21,15 +21,6 @@ index 7c1a9ff..ab61008 100644
  	set(host_vendor ${RPM_VENDOR})
  	set(host ${host_cpu}-${host_vendor}-${host_os})
  
-@@ -196,7 +195,7 @@ set(REQFUNCS
- 	mkstemp getcwd basename dirname realpath setenv unsetenv regcomp
- 	utimes getline localtime_r statvfs getaddrinfo
- 	openat mkdirat fstatat linkat symlinkat mkfifoat mknodat unlinkat
--	renameat utimensat fchmodat fchownat stpcpy stpncpy
-+	renameat utimensat fchmodat fchownat
- )
- 
- find_package(PkgConfig REQUIRED)
 @@ -391,7 +390,7 @@ if (LIBDW_FOUND)
  	set(HAVE_LIBDW 1)
  	check_library_exists(dw dwelf_elf_begin "" HAVE_DWELF_ELF_BEGIN)

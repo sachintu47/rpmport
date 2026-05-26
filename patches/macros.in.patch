@@ -1,5 +1,5 @@
 diff --git a/macros.in b/macros.in
-index da3a6bc..517056c 100644
+index da3a6bc..1adfb36 100644
 --- a/macros.in
 +++ b/macros.in
 @@ -371,7 +371,7 @@ Supplements:   (%{name} = %{version}-%{release} and langpacks-%{1})\
@@ -20,15 +20,6 @@ index da3a6bc..517056c 100644
  
  #	Verify digest/signature flags for various rpm modes:
  #	0x30300 (RPMVSF_MASK_NODIGESTS)    --nohdrchk      if set, don't check digest(s)
-@@ -680,7 +680,7 @@ Supplements:   (%{name} = %{version}-%{release} and langpacks-%{1})\
- # signature	require valid signature(s)
- # digest	require valid digest(s)
- # none		traditional rpm behavior, nothing required
--%_pkgverify_level all
-+%_pkgverify_level digest
- 
- # Disabler flags for package verification (similar to vsflags)
- # Set to 0x0 for full compatibility with v4 packages.
 @@ -1348,55 +1348,4 @@ end
  # arguments, eg `%add_sysuser g mygroup 515`.
  # -b option omits the "Provides: " and the "Requires:" lines for group

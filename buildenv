@@ -5,7 +5,7 @@ export ZOPEN_BUILD_LINE="STABLE"
 
 export ZOPEN_STABLE_URL="https://github.com/rpm-software-management/rpm.git"  # Specify the stable build URL (either git or tarball)
 export ZOPEN_STABLE_TAG="rpm-${RPM_VERSION}-release"  # Specify the git tag for stable builds
-export ZOPEN_STABLE_DEPS="cmake make pkgconfig popt lua zlib file libarchive scdoc sqlite libgcrypt bzip2 xz zstd lz4 gettext libiconv coreutils grep gzip patch quilt tar gawk quilt unzip" # Specify the stable build dependencies.
+export ZOPEN_STABLE_DEPS="cmake make pkgconfig popt lua zlib file libarchive scdoc sqlite libgcrypt bzip2 xz zstd lz4 gettext libiconv coreutils grep gzip patch quilt tar gawk quilt unzip gpg alternatives" # Specify the stable build dependencies.
 
 ## Required IF ZOPEN_BUILD_LINE='DEV'
 export ZOPEN_DEV_URL="https://github.com/rpm-software-management/rpm.git"   # Specify the dev build URL
@@ -19,11 +19,30 @@ export ZOPEN_CATEGORIES="core utilities"
 export ZOPEN_SYSTEM_PREREQ=""
 
 export ZOPEN_COMP="CLANG"
+export USE_CLANG_WRAPPER=1
 export ZOPEN_BOOTSTRAP="skip"  ## Bootstrap program to run (defaults to './bootstrap')
 export ZOPEN_CONFIGURE="cmake" ## Configuration program to run (defaults to './configure')
 
-export ZOPEN_RUNTIME_DEPS="file sed coreutils diffutils findutils grep bash gawk bzip2 gzip xz lzip patch tar unzip zstd git quilt make"
+export ZOPEN_RUNTIME_DEPS="file sed coreutils diffutils findutils grep bash gawk bzip2 gzip xz lzip patch tar unzip zstd git quilt make gpg"
 export ZOPEN_NAME="rpm-${RPM_VERSION}"
+
+zopen_pre_patch()
+{
+  src_dir="$1"
+  original_dir=$(pwd)
+  cd "${src_dir}"/rpm/rpmio || return 1
+  
+  # Clone libpgpr at a pinned commit for reproducibility
+  # Commit 40b9e8a072db4abc632cd93652f0b7ad351eb340 from 2026-03-18
+  if [ ! -d "rpmpgp_legacy" ]; then
+    git clone https://github.com/rpm-software-management/libpgpr rpmpgp_legacy || return 1
+    cd rpmpgp_legacy || return 1
+    git checkout 40b9e8a072db4abc632cd93652f0b7ad351eb340 || return 1
+    cd ..
+  fi
+  
+  cd "${original_dir}" || return 1
+}
 
 zopen_check_results()
 {
@@ -46,9 +65,10 @@ zopen_get_version()
 }
 
 
-export ZOPEN_CONFIGURE_OPTS="-B ../build --install-prefix \$ZOPEN_INSTALL_DIR/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR/ -DWITH_READLINE=OFF -DWITH_LIBELF=OFF -DWITH_LIBDW=OFF -DWITH_LIBLZMA=OFF -DENABLE_OPENMP=OFF -DWITH_CAP=OFF -DWITH_ACL=OFF -DENABLE_PLUGINS=OFF -DWITH_AUDIT=OFF -DWITH_SELINUX=OFF -DWITH_SEQUOIA=OFF -DWITH_DBUS=OFF -DHAVE_UNSHARE=OFF -DENABLE_PYTHON=OFF -DENABLE_CUTF8=OFF -DRPM_VENDOR=ibm"
+export ZOPEN_CONFIGURE_OPTS="-B ../build --install-prefix \$ZOPEN_INSTALL_DIR/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR/ -DWITH_READLINE=OFF -DWITH_LIBELF=OFF -DWITH_LIBDW=OFF -DWITH_LIBLZMA=OFF -DENABLE_OPENMP=OFF -DWITH_CAP=OFF -DWITH_ACL=OFF -DENABLE_PLUGINS=OFF -DWITH_AUDIT=OFF -DWITH_SELINUX=OFF -DWITH_SEQUOIA=OFF -DWITH_LEGACY_OPENPGP=ON -DWITH_DBUS=OFF -DHAVE_UNSHARE=OFF -DENABLE_PYTHON=OFF -DENABLE_CUTF8=OFF -DRPM_VENDOR=ibm"
 
 export ZOPEN_MAKE_OPTS="-C ../build"
+export ZOPEN_MAKE_MINIMAL="yes"
 export ZOPEN_INSTALL_OPTS="-C ../build install"
 
 zopen_append_to_env() {
