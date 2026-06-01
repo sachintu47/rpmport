@@ -23,7 +23,7 @@ export USE_CLANG_WRAPPER=1
 export ZOPEN_BOOTSTRAP="skip"  ## Bootstrap program to run (defaults to './bootstrap')
 export ZOPEN_CONFIGURE="cmake" ## Configuration program to run (defaults to './configure')
 
-export ZOPEN_RUNTIME_DEPS="file sed coreutils diffutils findutils grep bash gawk bzip2 gzip xz lzip patch tar unzip zstd git quilt make gpg"
+export ZOPEN_RUNTIME_DEPS="file sed coreutils diffutils findutils grep bash gawk bzip2 gzip xz lzip patch tar unzip zstd git quilt make gpg popt"
 export ZOPEN_NAME="rpm-${RPM_VERSION}"
 
 zopen_pre_patch()
@@ -102,5 +102,6 @@ zopen_append_to_zoslib_env(){
 cat <<EOF
 RPM_CONFIGDIR|set|PROJECT_ROOT/lib/rpm
 MAGIC|set|PROJECT_ROOT/../../file/file/share/misc/magic.mgc
+RPM_POPTEXEC_PATH|set|PROJECT_ROOT/bin
 EOF
 }
